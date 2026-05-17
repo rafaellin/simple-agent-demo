@@ -6,3 +6,4 @@ langchain-core==0.1.33
 langgraph==0.0.41
 pyyaml==6.0.1
 mcp==0.7.1
+typing-extensions>=4.8.0
