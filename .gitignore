@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.local
+backend/__pycache__/
+backend/.venv/
+backend/src/__pycache__/
+backend/src/mcp/__pycache__/
+backend/src/agent/__pycache__/
+frontend/src-tauri/target/
+frontend/.tauri/
