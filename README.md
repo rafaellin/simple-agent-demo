@@ -24,9 +24,9 @@ simple-agent-demo/
 │
 ├── frontend/                         # Tauri + React desktop app
 │   ├── src/
-│   │   ├── Chat.jsx                  # Chat component
+│   │   ├── Chat.tsx                  # Chat component
 │   │   ├── Chat.css                  # Chat UI styles
-│   │   ├── main.jsx                  # React entry point
+│   │   ├── main.tsx                  # React entry point
 │   │   └── index.css                 # Global styles
 │   ├── src-tauri/                    # Tauri Rust code
 │   ├── tauri.conf.json               # Tauri config
