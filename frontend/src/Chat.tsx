@@ -32,13 +32,13 @@ export function Chat() {
       
       if (data.type === 'text') {
         // Accumulate assistant message text
-        setCurrentAssistantMessage(prev => prev + data.data)
+        setCurrentAssistantMessage((prev: string) => prev + data.data)
       } else if (data.type === 'tool_start') {
         const toolData = data.data
         setToolStatus(`⚙️ Executing: ${toolData.tool}`)
         // Save current assistant message if any
         if (currentAssistantMessage) {
-          setMessages(prev => [...prev, {
+          setMessages((prev: Message[]) => [...prev, {
             role: 'assistant',
             content: currentAssistantMessage,
             timestamp: new Date()
@@ -48,7 +48,7 @@ export function Chat() {
       } else if (data.type === 'tool_result') {
         setToolStatus(`✓ Tool completed`)
         // Show tool result
-        setMessages(prev => [...prev, {
+        setMessages((prev: Message[]) => [...prev, {
           role: 'system',
           content: `Tool output: ${data.data}`,
           timestamp: new Date()
@@ -58,7 +58,7 @@ export function Chat() {
       } else if (data.type === 'end') {
         // Conversation ended - save any remaining message
         if (currentAssistantMessage) {
-          setMessages(prev => [...prev, {
+          setMessages((prev: Message[]) => [...prev, {
             role: 'assistant',
             content: currentAssistantMessage,
             timestamp: new Date()
@@ -69,14 +69,14 @@ export function Chat() {
       } else if (data.type === 'error') {
         // Save current assistant message if any
         if (currentAssistantMessage) {
-          setMessages(prev => [...prev, {
+          setMessages((prev: Message[]) => [...prev, {
             role: 'assistant',
             content: currentAssistantMessage,
             timestamp: new Date()
           }])
           setCurrentAssistantMessage('')
         }
-        setMessages(prev => [...prev, {
+        setMessages((prev: Message[]) => [...prev, {
           role: 'error',
           content: `Error: ${data.data}`,
           timestamp: new Date()
@@ -116,7 +116,7 @@ export function Chat() {
       timestamp: new Date()
     }
 
-    setMessages(prev => [...prev, userMessage])
+    setMessages((prev: Message[]) => [...prev, userMessage])
     setInputValue('')
     setIsLoading(true)
     setCurrentAssistantMessage('')
@@ -164,7 +164,7 @@ export function Chat() {
           </div>
         )}
         
-        {messages.map((msg, idx) => (
+        {messages.map((msg: Message, idx: number) => (
           <div key={idx} className={`message message-${msg.role}`}>
             <div className="message-role">{msg.role.toUpperCase()}</div>
             <div className="message-content">{msg.content}</div>
