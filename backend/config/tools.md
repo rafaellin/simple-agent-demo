@@ -2,23 +2,23 @@
 
 ## execute_powershell
 
-**服务**: Local MCP Server
+**Service**: Local MCP Server
 
-**功能**: 在workspace内执行PowerShell命令
+**Function**: Execute PowerShell commands within workspace
 
-**约束**: 
-- 仅操作 `f:/work/code/simple-agent-demo/agent-workspace` 路径下的文件和目录
-- 禁止路径穿越（../ 或绝对路径超出范围）
+**Constraints**: 
+- Only operates on files and directories within `f:/work/code/simple-agent-demo/agent-workspace`
+- Path traversal is prohibited (../ or absolute paths outside the allowed range)
 
-**参数**:
-- `command` (string): PowerShell命令
+**Parameters**:
+- `command` (string): PowerShell command to execute
 
-**返回**:
-- `output` (string): 命令执行的标准输出
-- `error` (string): 如有错误，返回错误信息
-- `exit_code` (int): 命令退出码
+**Returns**:
+- `output` (string): Standard output from command execution
+- `error` (string): Error message if any error occurs
+- `exit_code` (int): Command exit code
 
-**示例**:
+**Examples**:
 - `Get-ChildItem -Path .`
 - `New-Item -ItemType File -Name test.txt`
 - `Get-Content test.txt`

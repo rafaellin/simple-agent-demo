@@ -284,24 +284,20 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
                 
                 logger.info(f"Node '{node_name}' executed")
                 
-                # Update messages from node output
+                # Extract and yield messages from this node
                 if "messages" in node_output:
-                    self.message_history = node_output["messages"]
-                
-                # Extract new messages from this node
-                messages_before = len(self.message_history)
-                if "messages" in node_output:
-                    new_messages = node_output["messages"][messages_before:]
+                    new_messages = node_output["messages"]
                     
-                    # Yield appropriate message types based on node
+                    # Yield appropriate message types based on content
                     for msg in new_messages:
                         if isinstance(msg, AIMessage):
+                            # Yield text content if present
                             if msg.content:
                                 yield {
                                     "type": "text",
                                     "data": msg.content,
                                 }
-                            # Check for tool calls
+                            # Yield tool calls if present
                             if hasattr(msg, 'tool_calls') and msg.tool_calls:
                                 for tool_call in msg.tool_calls:
                                     tool_name = tool_call.get("name") or tool_call.get("type")
@@ -316,6 +312,9 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
                                 "type": "tool_result",
                                 "data": msg.content,
                             }
+                    
+                    # Update local history
+                    self.message_history = new_messages
         
         except Exception as e:
             logger.error(f"Error in stream_response: {e}", exc_info=True)

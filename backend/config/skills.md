@@ -2,29 +2,29 @@
 
 ## file_operation
 
-**触发**: 用户请求文件相关操作
+**Trigger**: User requests file-related operations
 
-**流程**: 
-1. 理解用户意图（创建、读取、修改、删除文件）
-2. 生成合适的PowerShell命令
-3. 调用MCP工具执行
-4. 解释结果给用户
+**Flow**: 
+1. Understand user intent (create, read, modify, delete files)
+2. Generate appropriate PowerShell commands
+3. Invoke MCP tool to execute
+4. Explain results to user
 
-**示例命令**:
-- "列出当前目录的文件" → `Get-ChildItem -Path .`
-- "创建一个新文件 test.txt" → `New-Item -ItemType File -Name test.txt`
-- "读取 README.md 内容" → `Get-Content README.md`
-- "删除 old.txt" → `Remove-Item old.txt`
-- "创建目录 data" → `New-Item -ItemType Directory -Name data`
+**Example Commands**:
+- "List files in current directory" → `Get-ChildItem -Path .`
+- "Create a new file test.txt" → `New-Item -ItemType File -Name test.txt`
+- "Read content of README.md" → `Get-Content README.md`
+- "Delete old.txt" → `Remove-Item old.txt`
+- "Create directory data" → `New-Item -ItemType Directory -Name data`
 
 ## info_query
 
-**触发**: 用户查询信息
+**Trigger**: User queries information
 
-**流程**:
-1. 使用PowerShell命令获取系统或文件信息
-2. 整理结果并返回
+**Flow**:
+1. Use PowerShell commands to get system or file information
+2. Organize and return results
 
-**示例**:
-- "当前目录是什么？" → `Get-Location`
-- "workspace里有什么文件？" → `Get-ChildItem -Path . -Recurse`
+**Examples**:
+- "What is the current directory?" → `Get-Location`
+- "What files are in the workspace?" → `Get-ChildItem -Path . -Recurse`
