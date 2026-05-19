@@ -7,6 +7,12 @@ interface Message {
   timestamp: Date
 }
 
+interface ApprovalRequest {
+  command: string
+  removal_type: string
+  message: string
+}
+
 export function Chat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
@@ -14,6 +20,7 @@ export function Chat() {
   const [isLoading, setIsLoading] = useState(false)
   const [toolStatus, setToolStatus] = useState<string | null>(null)
   const [currentAssistantMessage, setCurrentAssistantMessage] = useState('')
+  const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
 
@@ -26,7 +33,11 @@ export function Chat() {
       setIsConnected(true)
     }
     
-    ws.onmessage = (event: MessageEvent) => {
+    ws.onmessage = (event: Messaapproval_request') {
+        // Show approval request dialog
+        setApprovalRequest(data.data)
+        setToolStatus(null)
+      } else if (data.type === 'geEvent) => {
       const data = JSON.parse(event.data)
       console.log('Received:', data)
       
@@ -136,10 +147,31 @@ export function Chat() {
     }
   }
 
-  const resetConversation = () => {
-    setMessages([])
-    setToolStatus(null)
-    setCurrentAssistantMessage('')
+  cosetApprovalRequest(null)
+    wsRef.current?.send(JSON.stringify({
+      type: 'reset',
+      data: null
+    }))
+  }
+
+  const handleApprove = () => {
+    if (approvalRequest) {
+      wsRef.current?.send(JSON.stringify({
+        type: 'approve',
+        data: null
+      }))
+      setApprovalRequest(null)
+    }
+  }
+
+  const handleReject = () => {
+    if (approvalRequest) {
+      wsRef.current?.send(JSON.stringify({
+        type: 'reject',
+        data: null
+      }))
+      setApprovalRequest(null)
+    }CurrentAssistantMessage('')
     wsRef.current?.send(JSON.stringify({
       type: 'reset',
       data: null
@@ -161,7 +193,24 @@ export function Chat() {
           <div className="empty-state">
             <p>Start a conversation with the AI Agent</p>
             <p className="hint">You can ask it to perform file operations or queries</p>
+          
+
+        {approvalRequest && (
+          <div className="approval-request">
+            <div className="approval-content">
+              <div className="approval-warning">⚠️ {approvalRequest.message}</div>
+              <div className="approval-command">Command: <code>{approvalRequest.command}</code></div>
+              <div className="approval-buttons">
+                <button onClick={handleReject} className="reject-button">
+                  Cancel
+                </button>
+                <button onClick={handleApprove} className="approve-button">
+                  Proceed
+                </button>
+              </div>
+            </div>
           </div>
+        )}</div>
         )}
         
         {messages.map((msg: Message, idx: number) => (

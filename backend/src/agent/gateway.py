@@ -105,9 +105,42 @@ async def websocket_endpoint(websocket: WebSocket):
             
             if message_type == "chat":
                 try:
-                    # Stream agent response
+                    # Stream agent response with approval handling
                     for response in agent.stream_response(message_content):
-                        await websocket.send_text(json.dumps(response))
+                        # If approval is needed, send it and wait for response
+                        if response.get("type") == "approval_request":
+                            await websocket.send_text(json.dumps(response))
+                            
+                            # Wait for user approval/rejection
+                            approval_message = await websocket.receive_text()
+                            approval_data = json.loads(approval_message)
+                            
+                            if approval_data.get("type") == "approve":
+                                logger.info("User approved tool execution")
+                                agent.resume_with_approval()
+                                # Continue streaming the rest of the conversation
+                                for resume_response in agent.stream_response(""):
+                                    await websocket.send_text(json.dumps(resume_response))
+                                break
+                            elif approval_data.get("type") == "reject":
+                                logger.info("User rejected tool execution")
+                                agent.pending_approval = None
+                                await websocket.send_text(
+                                    json.dumps({
+                                        "type": "text",
+                                        "data": "Tool execution cancelled by user",
+                                    })
+                                )
+                                await websocket.send_text(
+                                    json.dumps({
+                                        "type": "end",
+                                        "data": "Conversation ended",
+                                    })
+                                )
+                                break
+                        else:
+                            # Regular response, send to client
+                            await websocket.send_text(json.dumps(response))
                 except Exception as e:
                     logger.error(f"Error streaming response: {e}", exc_info=True)
                     await websocket.send_text(

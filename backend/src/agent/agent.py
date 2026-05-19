@@ -21,6 +21,8 @@ class AgentState(TypedDict):
     user_message: str
     max_iterations: int
     iteration: int
+    pending_approval: dict | None
+    approval_given: bool
 
 
 class ConfigLoader:
@@ -108,6 +110,9 @@ class Agent:
         self.system_prompt = self._build_system_prompt()
         self.message_history = []
         
+        # Track pending approvals
+        self.pending_approval = None
+        
         # Build the LangGraph
         self.graph = self._build_graph()
 
@@ -139,6 +144,7 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
         
         # Add nodes
         graph.add_node("call_model", self._call_model_node)
+        graph.add_node("check_tool", self._check_tool_node)
         graph.add_node("execute_tools", self._execute_tools_node)
         
         # Add edges
@@ -146,6 +152,14 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
         graph.add_conditional_edges(
             "call_model",
             self._should_continue,
+            {
+                "check_tool": "check_tool",
+                "end": END,
+            },
+        )
+        graph.add_conditional_edges(
+            "check_tool",
+            self._should_execute_tool,
             {
                 "execute_tools": "execute_tools",
                 "end": END,
@@ -156,7 +170,74 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
         # Compile the graph
         return graph.compile()
 
-    def _call_model_node(self, state: AgentState) -> dict:
+    def _is_file_removal_command(self, command: str) -> tuple[bool, str]:
+        """
+        Check if a PowerShell command is a file removal operation.
+        Returns (is_removal, description)
+        """
+        command_lower = command.lower().strip()
+        
+        # Check for common file removal patterns
+        removal_patterns = [
+            ("remove-item", "Remove-Item"),
+            ("rm ", "Remove-Item (rm)"),
+            ("del ", "Delete (del)"),
+            ("erase ", "Erase"),
+            ("rmdir ", "Remove Directory (rmdir)"),
+        ]
+        
+        for pattern, description in removal_patterns:
+            if pattern in command_lower:
+                return True, description
+        
+        return False, ""
+
+    def _check_tool_node(self, state: AgentState) -> dict:
+        """Node that checks tool calls for dangerous operations."""
+        messages = state["messages"]
+        last_message = messages[-1]
+        
+        # Check if last message has tool calls
+        if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            for tool_call in last_message.tool_calls:
+                tool_name = tool_call.get("name") or tool_call.get("type")
+                tool_args = tool_call.get("args") or tool_call.get("arguments") or {}
+                
+                # If it's a PowerShell tool, check the command
+                if tool_name == "execute_powershell":
+                    command = tool_args.get("command", "")
+                    is_removal, removal_type = self._is_file_removal_command(command)
+                    
+                    if is_removal:
+                        # Store approval info and mark as pending
+                        self.pending_approval = {
+                            "tool_call": tool_call,
+                            "tool_name": tool_name,
+                            "tool_args": tool_args,
+                            "command": command,
+                            "removal_type": removal_type,
+                        }
+                        
+                        return {
+                            "messages": messages,
+                            "pending_approval": self.pending_approval,
+                            "approval_given": False,
+                        }
+        
+        # No dangerous operations detected, proceed normally
+        return {
+            "messages": messages,
+            "pending_approval": None,
+            "approval_given": False,
+        }
+
+    def _should_execute_tool(self, state: AgentState) -> Literal["execute_tools", "end"]:
+        """Conditional edge: should we execute tool or wait for approval?"""
+        # If there's a pending approval and user hasn't approved, stop
+        if state.get("pending_approval") and not state.get("approval_given"):
+            return "end"
+        
+        return "execute_tools"
         """Node that calls the LLM model."""
         logger.info(f"Agent iteration {state['iteration']}")
         
@@ -264,25 +345,46 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
 
     def stream_response(self, user_message: str):
         """Stream agent response using LangGraph."""
-        # Add user message to history
-        self.message_history.append(HumanMessage(content=user_message))
+        # Check if we're resuming with approval
+        is_resuming = bool(self.pending_approval)
+        
+        if not is_resuming:
+            # Add user message to history
+            self.message_history.append(HumanMessage(content=user_message))
         
         # Initialize state
         initial_state = {
             "messages": self.message_history.copy(),
-            "user_message": user_message,
+            "user_message": user_message if not is_resuming else "",
             "max_iterations": 5,
             "iteration": 0,
+            "pending_approval": self.pending_approval,
+            "approval_given": False,
         }
         
         try:
             # Stream through the graph
             for output in self.graph.stream(initial_state):
-                # output is a dict like {"call_model": {...}} or {"execute_tools": {...}}
+                # output is a dict like {"call_model": {...}} or {"check_tool": {...}}
                 node_name = list(output.keys())[0]
                 node_output = output[node_name]
                 
                 logger.info(f"Node '{node_name}' executed")
+                
+                # Check if there's a pending approval
+                if node_output.get("pending_approval"):
+                    pending = node_output["pending_approval"]
+                    self.pending_approval = pending
+                    yield {
+                        "type": "approval_request",
+                        "data": {
+                            "command": pending["command"],
+                            "removal_type": pending["removal_type"],
+                            "message": f"⚠️ About to execute {pending['removal_type']} command. Do you want to proceed?",
+                        },
+                    }
+                    # Stop streaming, wait for approval
+                    return
                 
                 # Extract and yield messages from this node
                 if "messages" in node_output:
@@ -328,6 +430,40 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
                 "type": "end",
                 "data": "Conversation completed",
             }
+    
+    def resume_with_approval(self) -> None:
+        """Resume streaming after user has approved a dangerous operation."""
+        if not self.pending_approval:
+            logger.warning("No pending approval to resume")
+            return
+        
+        logger.info(f"Resuming with approval for: {self.pending_approval['command']}")
+        
+        # Execute the approved tool
+        tool_name = self.pending_approval["tool_name"]
+        tool_args = self.pending_approval["tool_args"]
+        
+        try:
+            tool_result = self.process_tool_call(tool_name, tool_args)
+            
+            # Create tool message and add to history
+            tool_message = ToolMessage(
+                content=tool_result,
+                tool_call_id=f"call_approved_{id(self.pending_approval)}",
+            )
+            self.message_history.append(tool_message)
+            
+            logger.info(f"Tool executed successfully: {tool_result}")
+        except Exception as e:
+            logger.error(f"Error executing approved tool: {e}")
+            tool_message = ToolMessage(
+                content=json.dumps({"error": str(e)}),
+                tool_call_id=f"call_approved_{id(self.pending_approval)}",
+            )
+            self.message_history.append(tool_message)
+        finally:
+            # Clear pending approval
+            self.pending_approval = None
     
     def get_message_history(self) -> list[dict]:
         """Get formatted message history."""

@@ -288,3 +288,94 @@ textarea:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.approval-request {
+  align-self: center;
+  max-width: 500px;
+  margin: 16px 0;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.approval-content {
+  background: #fff3cd;
+  border: 2px solid #ffc107;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 4px 12px rgba(255, 193, 7, 0.2);
+}
+
+.approval-warning {
+  font-size: 16px;
+  font-weight: 600;
+  color: #856404;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.approval-command {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #555;
+  border-left: 4px solid #ff9800;
+}
+
+.approval-command code {
+  font-family: 'Courier New', monospace;
+  color: #d32f2f;
+  word-break: break-all;
+}
+
+.approval-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.approve-button,
+.reject-button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.approve-button {
+  background: #4caf50;
+  color: white;
+}
+
+.approve-button:hover {
+  background: #45a049;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+}
+
+.reject-button {
+  background: #f44336;
+  color: white;
+}
+
+.reject-button:hover {
+  background: #da190b;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(244, 67, 54, 0.3);
+}
