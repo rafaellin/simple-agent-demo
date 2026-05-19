@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Any, Literal
 from pathlib import Path
+from datetime import datetime
 
 try:
     from langchain_openai import ChatOpenAI
@@ -13,6 +14,19 @@ from langgraph.graph import StateGraph, START, END
 from typing_extensions import TypedDict
 
 logger = logging.getLogger(__name__)
+
+
+class ApprovalCheckpoint:
+    """Checkpoint that captures graph state at approval point."""
+    
+    def __init__(self, iteration: int, messages: list, pending_approval: dict):
+        self.iteration = iteration
+        self.messages = messages
+        self.pending_approval = pending_approval
+        self.timestamp = datetime.now()
+    
+    def __repr__(self) -> str:
+        return f"ApprovalCheckpoint(iter={self.iteration}, cmd={self.pending_approval.get('command', 'unknown')[:30]}...)"
 
 
 class AgentState(TypedDict):
@@ -98,6 +112,7 @@ class Agent:
         self.mcp_client = MCPClient(workspace_path)
         self.api_key = api_key
         self.workspace_path = workspace_path
+        self.checkpoint = None
         
         # Initialize LLM
         self.llm = ChatOpenAI(
@@ -217,6 +232,14 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
                             "command": command,
                             "removal_type": removal_type,
                         }
+                        # Create checkpoint at this point
+                        self.checkpoint = ApprovalCheckpoint(
+                            iteration=state["iteration"],
+                            messages=messages.copy(),
+                            pending_approval=self.pending_approval.copy(),
+                        )
+                        logger.info(f"Checkpoint created: {self.checkpoint}")
+                        
                         
                         return {
                             "messages": messages,
@@ -346,21 +369,34 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
     def stream_response(self, user_message: str):
         """Stream agent response using LangGraph."""
         # Check if we're resuming with approval
-        is_resuming = bool(self.pending_approval)
+        is_resuming = bool(self.checkpoint)
         
         if not is_resuming:
             # Add user message to history
             self.message_history.append(HumanMessage(content=user_message))
         
         # Initialize state
-        initial_state = {
-            "messages": self.message_history.copy(),
-            "user_message": user_message if not is_resuming else "",
-            "max_iterations": 5,
-            "iteration": 0,
-            "pending_approval": self.pending_approval,
-            "approval_given": False,
-        }
+        if is_resuming:
+            # Restore from checkpoint
+            logger.info(f"Resuming from checkpoint: {self.checkpoint}")
+            initial_state = {
+                "messages": self.checkpoint.messages.copy(),
+                "user_message": "",
+                "max_iterations": 5,
+                "iteration": self.checkpoint.iteration,
+                "pending_approval": self.checkpoint.pending_approval.copy(),
+                "approval_given": False,
+            }
+        else:
+            # Fresh start
+            initial_state = {
+                "messages": self.message_history.copy(),
+                "user_message": user_message,
+                "max_iterations": 5,
+                "iteration": 0,
+                "pending_approval": None,
+                "approval_given": False,
+            }
         
         try:
             # Stream through the graph
@@ -433,37 +469,52 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
     
     def resume_with_approval(self) -> None:
         """Resume streaming after user has approved a dangerous operation."""
-        if not self.pending_approval:
-            logger.warning("No pending approval to resume")
+        if not self.checkpoint:
+            logger.warning("No checkpoint to resume from")
             return
         
-        logger.info(f"Resuming with approval for: {self.pending_approval['command']}")
+        logger.info(f"Approving and executing: {self.checkpoint.pending_approval['command']}")
         
-        # Execute the approved tool
-        tool_name = self.pending_approval["tool_name"]
-        tool_args = self.pending_approval["tool_args"]
+        # Get tool info from checkpoint
+        tool_name = self.checkpoint.pending_approval["tool_name"]
+        tool_args = self.checkpoint.pending_approval["tool_args"]
         
         try:
+            # Execute the approved tool
             tool_result = self.process_tool_call(tool_name, tool_args)
             
             # Create tool message and add to history
             tool_message = ToolMessage(
                 content=tool_result,
-                tool_call_id=f"call_approved_{id(self.pending_approval)}",
+                tool_call_id=f"call_approved_{self.checkpoint.iteration}",
             )
-            self.message_history.append(tool_message)
             
-            logger.info(f"Tool executed successfully: {tool_result}")
+            # Update checkpoint with executed tool result
+            self.checkpoint.messages.append(tool_message)
+            self.message_history = self.checkpoint.messages.copy()
+            
+            logger.info(f"Tool executed successfully: {tool_result[:100]}...")
         except Exception as e:
             logger.error(f"Error executing approved tool: {e}")
             tool_message = ToolMessage(
                 content=json.dumps({"error": str(e)}),
-                tool_call_id=f"call_approved_{id(self.pending_approval)}",
+                tool_call_id=f"call_approved_{self.checkpoint.iteration}",
             )
-            self.message_history.append(tool_message)
+            self.checkpoint.messages.append(tool_message)
+            self.message_history = self.checkpoint.messages.copy()
         finally:
-            # Clear pending approval
+            # Clear checkpoint and pending approval after execution
+            self.checkpoint = None
             self.pending_approval = None
+    
+    def reject_pending_approval(self) -> None:
+        """Reject the pending approval request."""
+        if self.checkpoint:
+            logger.info(f"Rejected: {self.checkpoint.pending_approval['command']}")
+            self.checkpoint = None
+            self.pending_approval = None
+        else:
+            logger.warning("No pending approval to reject")
     
     def get_message_history(self) -> list[dict]:
         """Get formatted message history."""
@@ -476,5 +527,8 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
         return history
 
     def reset_conversation(self):
-        """Reset conversation history."""
+        """Reset conversation history and clear any pending approvals."""
         self.message_history = []
+        self.pending_approval = None
+        self.checkpoint = None
+        logger.info("Conversation reset")

@@ -118,13 +118,13 @@ async def websocket_endpoint(websocket: WebSocket):
                             if approval_data.get("type") == "approve":
                                 logger.info("User approved tool execution")
                                 agent.resume_with_approval()
-                                # Continue streaming the rest of the conversation
+                                # Continue streaming with approved tool execution
                                 for resume_response in agent.stream_response(""):
                                     await websocket.send_text(json.dumps(resume_response))
                                 break
                             elif approval_data.get("type") == "reject":
                                 logger.info("User rejected tool execution")
-                                agent.pending_approval = None
+                                agent.reject_pending_approval()
                                 await websocket.send_text(
                                     json.dumps({
                                         "type": "text",
