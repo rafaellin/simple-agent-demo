@@ -132,6 +132,7 @@ class Agent:
         
         # Track pending approvals
         self.pending_approval = None
+        self.approval_was_given = False
         
         # Build the LangGraph
         self.graph = self._build_graph()
@@ -423,8 +424,8 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
                 "user_message": "",
                 "max_iterations": 5,
                 "iteration": self.checkpoint.iteration,
-                "pending_approval": self.checkpoint.pending_approval.copy(),
-                "approval_given": False,
+                "pending_approval": self.checkpoint.pending_approval.copy() if not self.approval_was_given else None,
+                "approval_given": self.approval_was_given,
             }
         else:
             # Fresh start
@@ -506,6 +507,11 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
                 "data": f"Error: {str(e)}",
             }
         finally:
+            # Clear approval state if stream completed
+            self.approval_was_given = False
+            self.checkpoint = None
+            self.pending_approval = None
+            
             # Check if we should summarize the conversation
             if self.memory.should_summarize():
                 self._auto_summarize_conversation()
@@ -517,44 +523,18 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
             }
     
     def resume_with_approval(self) -> None:
-        """Resume streaming after user has approved a dangerous operation."""
+        """Signal approval for the pending dangerous operation.
+        The graph will resume with approval_given=True and execute through _execute_tools_node.
+        """
         if not self.checkpoint:
             logger.warning("No checkpoint to resume from")
             return
         
-        logger.info(f"Approving and executing: {self.checkpoint.pending_approval['command']}")
+        logger.info(f"Approving operation: {self.checkpoint.pending_approval['command']}")
         
-        # Get tool info from checkpoint
-        tool_name = self.checkpoint.pending_approval["tool_name"]
-        tool_args = self.checkpoint.pending_approval["tool_args"]
-        
-        try:
-            # Execute the approved tool
-            tool_result = self.process_tool_call(tool_name, tool_args)
-            
-            # Create tool message and add to history
-            tool_message = ToolMessage(
-                content=tool_result,
-                tool_call_id=f"call_approved_{self.checkpoint.iteration}",
-            )
-            
-            # Update checkpoint with executed tool result
-            self.checkpoint.messages.append(tool_message)
-            self.message_history = self.checkpoint.messages.copy()
-            
-            logger.info(f"Tool executed successfully: {tool_result[:100]}...")
-        except Exception as e:
-            logger.error(f"Error executing approved tool: {e}")
-            tool_message = ToolMessage(
-                content=json.dumps({"error": str(e)}),
-                tool_call_id=f"call_approved_{self.checkpoint.iteration}",
-            )
-            self.checkpoint.messages.append(tool_message)
-            self.message_history = self.checkpoint.messages.copy()
-        finally:
-            # Clear checkpoint and pending approval after execution
-            self.checkpoint = None
-            self.pending_approval = None
+        # Set flag to indicate approval was given
+        # stream_response() will check this when resuming
+        self.approval_was_given = True
     
     def reject_pending_approval(self) -> None:
         """Reject the pending approval request."""
@@ -562,6 +542,7 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
             logger.info(f"Rejected: {self.checkpoint.pending_approval['command']}")
             self.checkpoint = None
             self.pending_approval = None
+            self.approval_was_given = False
         else:
             logger.warning("No pending approval to reject")
     
