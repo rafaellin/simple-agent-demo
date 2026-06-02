@@ -14,6 +14,7 @@ from langgraph.graph import StateGraph, START, END
 from typing_extensions import TypedDict
 
 from memory import MemoryManager
+from intent_classifier import IntentClassifier, IntentClassification
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +126,9 @@ class Agent:
             model="gpt-4o-mini",
             temperature=0.7,
         )
+        
+        # Initialize intent classifier
+        self.intent_classifier = IntentClassifier(self.llm)
         
         # Build system prompt
         self.system_prompt = self._build_system_prompt()
@@ -405,13 +409,46 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
         except Exception as e:
             logger.error(f"Error auto-summarizing conversation: {e}")
 
+    def _classify_user_intent(self, message: str) -> IntentClassification:
+        """Delegate to intent classifier."""
+        return self.intent_classifier.classify(message)
+
     def stream_response(self, user_message: str):
-        """Stream agent response using LangGraph."""
+        """Stream agent response using LangGraph.
+        
+        If there's a pending approval checkpoint:
+        - User MUST respond with "approve", "yes", "ok", etc. to proceed
+        - User can respond with "no", "cancel", "reject", etc. to cancel
+        - Any other response is rejected (prevents alternative command suggestions)
+        """
         # Check if we're resuming with approval
         is_resuming = bool(self.checkpoint)
         
-        if not is_resuming:
-            # Add user message to history and memory
+        if is_resuming:
+            # Pending approval - use LLM to classify user intent (structured output)
+            classification = self._classify_user_intent(user_message)
+            
+            if classification.intent == "approve":
+                logger.info(f"User approved via natural language: '{user_message}' (confidence: {classification.confidence})")
+                self.approval_was_given = True
+            elif classification.intent == "reject":
+                logger.info(f"User rejected operation: '{user_message}' (confidence: {classification.confidence})")
+                self.reject_pending_approval()
+                yield {
+                    "type": "approval_rejected",
+                    "data": "Operation cancelled.",
+                }
+                return
+            else:
+                # User sent something other than approval/rejection during approval state
+                logger.warning(f"Invalid response during approval state: '{user_message}' (reason: {classification.reason})")
+                yield {
+                    "type": "approval_pending_error",
+                    "data": "Approval is pending. Please respond with approve or reject only.",
+                }
+                return
+        else:
+            # No pending approval - add message normally
             self.message_history.append(HumanMessage(content=user_message))
             self.memory.add_message("user", user_message, metadata={"type": "user_input"})
         
