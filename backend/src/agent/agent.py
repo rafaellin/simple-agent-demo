@@ -13,6 +13,8 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMe
 from langgraph.graph import StateGraph, START, END
 from typing_extensions import TypedDict
 
+from memory import MemoryManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -114,6 +116,9 @@ class Agent:
         self.workspace_path = workspace_path
         self.checkpoint = None
         
+        # Initialize memory system
+        self.memory = MemoryManager(workspace_path)
+        
         # Initialize LLM
         self.llm = ChatOpenAI(
             api_key=api_key,
@@ -132,10 +137,11 @@ class Agent:
         self.graph = self._build_graph()
 
     def _build_system_prompt(self) -> str:
-        """Build the system prompt including tools info."""
+        """Build the system prompt including tools info and memory context."""
         system = self.config.load_system_prompt()
         tools_info = self.config.load_tools_info()
         skills_info = self.config.load_skills_info()
+        memory_context = self.memory.get_context_for_llm()
         
         prompt = f"""
 {system}
@@ -145,6 +151,9 @@ class Agent:
 
 ## Skills
 {skills_info}
+
+## Memory Context
+{memory_context if memory_context else "No prior facts or patterns stored yet."}
 
 When you need to perform file operations or execute commands, use the available PowerShell tools.
 Always respond in Chinese if the user writes in Chinese, otherwise in English.
@@ -261,6 +270,8 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
             return "end"
         
         return "execute_tools"
+
+    def _call_model_node(self, state: AgentState) -> dict:
         """Node that calls the LLM model."""
         logger.info(f"Agent iteration {state['iteration']}")
         
@@ -365,6 +376,33 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
         result = self.mcp_client.call_tool(tool_name, arguments)
         logger.info(f"Tool result: {result}")
         return result
+    
+    def _auto_summarize_conversation(self) -> None:
+        """Automatically summarize conversation when threshold is reached."""
+        try:
+            recent_messages = self.memory.short_term.get_all_messages()
+            if not recent_messages:
+                return
+            
+            # Create a simple summary from recent messages
+            user_messages = [m for m in recent_messages if m["role"] == "user"]
+            assistant_messages = [m for m in recent_messages if m["role"] == "assistant"]
+            
+            summary = f"Conversation with {len(user_messages)} user messages and {len(assistant_messages)} assistant responses. "
+            
+            if user_messages:
+                summary += f"Topics discussed: {', '.join([m['content'][:50] for m in user_messages[:3]])}"
+            
+            # Store summary in long-term memory
+            summary_id = f"summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            self.memory.create_summary(summary_id, summary)
+            
+            # Clear short-term memory after summarization
+            self.memory.short_term.clear()
+            
+            logger.info(f"Auto-summarized conversation: {summary_id}")
+        except Exception as e:
+            logger.error(f"Error auto-summarizing conversation: {e}")
 
     def stream_response(self, user_message: str):
         """Stream agent response using LangGraph."""
@@ -372,8 +410,9 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
         is_resuming = bool(self.checkpoint)
         
         if not is_resuming:
-            # Add user message to history
+            # Add user message to history and memory
             self.message_history.append(HumanMessage(content=user_message))
+            self.memory.add_message("user", user_message, metadata={"type": "user_input"})
         
         # Initialize state
         if is_resuming:
@@ -435,6 +474,9 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
                                     "type": "text",
                                     "data": msg.content,
                                 }
+                                # Add AI response to memory
+                                self.memory.add_message("assistant", msg.content, 
+                                                      metadata={"type": "ai_response"})
                             # Yield tool calls if present
                             if hasattr(msg, 'tool_calls') and msg.tool_calls:
                                 for tool_call in msg.tool_calls:
@@ -450,6 +492,9 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
                                 "type": "tool_result",
                                 "data": msg.content,
                             }
+                            # Add tool result to memory
+                            self.memory.add_message("tool", msg.content, 
+                                                  metadata={"type": "tool_result"})
                     
                     # Update local history
                     self.message_history = new_messages
@@ -461,6 +506,10 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
                 "data": f"Error: {str(e)}",
             }
         finally:
+            # Check if we should summarize the conversation
+            if self.memory.should_summarize():
+                self._auto_summarize_conversation()
+            
             # Signal end of conversation
             yield {
                 "type": "end",
@@ -532,3 +581,40 @@ Always respond in Chinese if the user writes in Chinese, otherwise in English.
         self.pending_approval = None
         self.checkpoint = None
         logger.info("Conversation reset")
+    
+    # Memory management methods
+    def add_fact_to_memory(self, fact_id: str, fact: str, category: str = "general", 
+                          confidence: float = 1.0) -> None:
+        """Store a fact in long-term memory."""
+        self.memory.long_term.add_fact(fact_id, fact, category, confidence)
+        logger.info(f"Added fact to memory: {fact_id}")
+    
+    def retrieve_memory_fact(self, fact_id: str) -> dict:
+        """Retrieve a fact from long-term memory."""
+        fact = self.memory.long_term.get_fact(fact_id)
+        return fact or {"error": f"Fact '{fact_id}' not found"}
+    
+    def set_memory_preference(self, key: str, value: Any) -> None:
+        """Store a user preference in memory."""
+        self.memory.long_term.set_preference(key, value)
+        logger.info(f"Set preference: {key}")
+    
+    def get_memory_preferences(self) -> dict:
+        """Get all stored preferences."""
+        return self.memory.long_term.get_all_preferences()
+    
+    def get_memory_stats(self) -> dict:
+        """Get current memory statistics."""
+        stats = self.memory.get_memory_stats()
+        stats["message_history_length"] = len(self.message_history)
+        return stats
+    
+    def get_memory_summary(self) -> dict:
+        """Get a summary of agent memory."""
+        return {
+            "stats": self.get_memory_stats(),
+            "recent_summaries": self.memory.long_term.get_summaries(limit=3),
+            "common_patterns": self.memory.long_term.get_common_patterns(limit=3),
+            "stored_facts": len(self.memory.long_term.get_all_facts()),
+            "user_preferences": self.get_memory_preferences()
+        }

@@ -2,6 +2,42 @@
 
 A proof-of-concept desktop AI assistant built with **LangGraph**, **FastAPI**, **Tauri**, and **React**. The agent can understand user intent through conversation and execute local PowerShell operations within a restricted workspace.
 
+## Features
+
+- ✅ **Intelligent Conversation**: LangGraph-based agentic architecture with multi-step reasoning
+- ✅ **Safe Execution**: Approval system for potentially dangerous operations
+- ✅ **Short-term & Long-term Memory**: Maintains conversation context and persistent knowledge
+- ✅ **Workspace Sandbox**: All operations confined to isolated workspace directory
+- ✅ **WebSocket Communication**: Real-time streaming responses
+- ✅ **Desktop UI**: Native desktop experience with Tauri + React
+
+## Memory System
+
+The agent now includes a sophisticated memory system:
+
+- **Short-Term Memory**: Maintains up to 50 recent messages for conversation context
+- **Long-Term Memory**: Persists facts, summaries, preferences, and behavioral patterns
+- **Auto-Summarization**: Automatically summarizes conversations to prevent context overflow
+- **Memory Integration**: LLM receives relevant facts and patterns from memory in each prompt
+
+See [MEMORY_GUIDE.md](./MEMORY_GUIDE.md) for detailed usage and API documentation.
+
+## 📚 Documentation
+
+### Memory System (New!)
+- **[MEMORY.md](./MEMORY.md)** ⭐ **Complete Memory Reference** - All documentation in one file
+  - Quick start (5 min)
+  - Features overview
+  - Python API reference
+  - WebSocket API reference
+  - Examples & usage
+  - Troubleshooting & best practices
+
+### Setup & Testing
+- **[SETUP.md](./SETUP.md)** - Detailed setup guide
+- **[test_e2e.py](./test_e2e.py)** - End-to-end tests
+- **[test_memory.py](./test_memory.py)** - Memory system tests
+
 ## Project Structure
 
 ```

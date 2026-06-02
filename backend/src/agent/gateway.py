@@ -172,6 +172,80 @@ async def websocket_endpoint(websocket: WebSocket):
                         })
                     )
             
+            elif message_type == "memory_stats":
+                # Get memory statistics
+                if agent:
+                    stats = agent.get_memory_stats()
+                    await websocket.send_text(
+                        json.dumps({
+                            "type": "memory_stats",
+                            "data": stats,
+                        })
+                    )
+            
+            elif message_type == "memory_summary":
+                # Get comprehensive memory summary
+                if agent:
+                    summary = agent.get_memory_summary()
+                    await websocket.send_text(
+                        json.dumps({
+                            "type": "memory_summary",
+                            "data": summary,
+                        })
+                    )
+            
+            elif message_type == "add_fact":
+                # Add a fact to long-term memory
+                if agent:
+                    fact_id = data.get("fact_id", "unknown")
+                    fact = data.get("fact", "")
+                    category = data.get("category", "general")
+                    confidence = data.get("confidence", 1.0)
+                    
+                    agent.add_fact_to_memory(fact_id, fact, category, confidence)
+                    await websocket.send_text(
+                        json.dumps({
+                            "type": "fact_added",
+                            "data": {"fact_id": fact_id, "status": "success"},
+                        })
+                    )
+            
+            elif message_type == "get_fact":
+                # Retrieve a fact from memory
+                if agent:
+                    fact_id = data.get("fact_id", "")
+                    fact = agent.retrieve_memory_fact(fact_id)
+                    await websocket.send_text(
+                        json.dumps({
+                            "type": "fact_retrieved",
+                            "data": fact,
+                        })
+                    )
+            
+            elif message_type == "set_preference":
+                # Set a user preference
+                if agent:
+                    key = data.get("key", "")
+                    value = data.get("value", "")
+                    agent.set_memory_preference(key, value)
+                    await websocket.send_text(
+                        json.dumps({
+                            "type": "preference_set",
+                            "data": {"key": key, "status": "success"},
+                        })
+                    )
+            
+            elif message_type == "get_preferences":
+                # Get all preferences
+                if agent:
+                    prefs = agent.get_memory_preferences()
+                    await websocket.send_text(
+                        json.dumps({
+                            "type": "preferences",
+                            "data": prefs,
+                        })
+                    )
+            
             else:
                 await websocket.send_text(
                     json.dumps({
